@@ -26,7 +26,13 @@ class MyClient(genai.Client):
             self.has_ext_api = True
         else:
             self.has_ext_api = False
-            super(MyClient,self).__init__(api_key=api_key, *args)
+            super(MyClient,self).__init__(
+                api_key=api_key,
+                http_options=types.HttpOptions(
+                    base_url='https://generativelanguage.googleapis.com/',
+                    api_version='v1beta'
+                )
+            )
 
         self.availableModels = availableModels
 
@@ -35,7 +41,7 @@ class MyClient(genai.Client):
         Params:
         model = Gemini model to query
         prompt = prompt
-        choice = response type of choice, defaults to 0
+        choice = response type of choice, default is 0 -> text
 
         Returns:
         Response from the Gemini model
@@ -57,6 +63,51 @@ class MyClient(genai.Client):
         # Return the response of the type of choice if specified (else just the first )
         return resp.json()["choices"][kwargs.get('choice', 0)]["message"]["content"]
 
+    def gemini_interaction(self, model: str, prompt='', *args, **kwargs):
+        '''
+        Params:
+        model = Gemini model to query
+        prompt = prompt
+        full_resp = return the full interaction, default False
+        choice = response type of choice (0-3), defaults is 0 -> text
+
+        Notes:
+        - will try out interactions.create() first and then tries models.generate_content()
+        - responses listed in order: 0 = text, 1 = audio, 2 = image, 3 = video
+
+        Returns:
+        Response from the Gemini model
+        '''
+
+        # try with interactions
+        try:
+            assert type(kwargs.get('choice', 0)) == int, f'choice is invalid type {type(kwargs.get('choice'))}, expected int'
+            assert kwargs.get('choice', 0) < 4, f'Index {kwargs.get('choice')} is out of range, expected 0-3'
+
+            resp = self.interactions.create(
+                model = model,
+                input = prompt
+            )
+
+            if kwargs.get('full_resp', False):
+                return resp
+
+            # A list containing all the response options
+            response_list = [resp.output_text, resp.output_audio, resp.output_image, resp.output_video]
+            return response_list[kwargs.get('choice', 0)]
+        except Exception as e:
+            print(f"Error: {e}\nTrying generate_content() method...")
+
+        # upon failure try with generate_content()
+        try:
+            resp = self.models.generate_content(
+                model=model,
+                contents=prompt
+            )
+            return resp.text
+        except Exception as e:
+            print(f"Error: {e}")
+            return
 
     def interact(self, model: str, prompt: str, api_key = None, *args, **kwargs):
         '''
@@ -79,18 +130,10 @@ class MyClient(genai.Client):
                 if api_key is not None:
                     return self.parley_api_interaction(api_key, model, prompt, *args, **kwargs)
                 else:
-                    print('A query routed through an external API needs the api key kwarg')
+                    print('A query routed through an external API needs the api_key argument')
                     return
             else:
-                try:
-                    resp = self.models.generate_content(
-                        model=model,
-                        contents=prompt
-                    )
-                    return resp.text
-                except Exception as e:
-                    print(f"Error: {e}")
-                    return
+                return self.gemini_interaction(model, prompt, *args, **kwargs)
         else:
             return f'Choose a model from available models: {self.availableModels}'
 

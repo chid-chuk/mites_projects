@@ -8,22 +8,26 @@ from gemini_client import create_client
 load_dotenv(override=True)
 
 # For Parley API
-def api_key():
-    ''' Function to pull api key '''
-    return os.environ["PARLEY_API_KEY"]
-
-base_url = os.environ.get("GOOGLE_GEMINI_BASE_URL")
-availableModels = os.environ.get('availableModels').split(',')
-client = create_client(api_key(), availableModels=availableModels, base_url=base_url)
-
-# Directly using Gemini api key (currently disfunctional)
 # def api_key():
 #     ''' Function to pull api key '''
-#     return os.environ["GEMINI_API_KEY"]
+#     return os.environ["PARLEY_API_KEY"]
 
-# availableModels = os.environ.get('GEMINI_availableModels').split(',')
-# client = create_client(api_key(), availableModels=availableModels)
+# base_url = os.environ.get("GOOGLE_GEMINI_BASE_URL")
+# availableModels = os.environ.get('availableModels').split(',')
+# client = create_client(api_key(), availableModels=availableModels, base_url=base_url)
 
-# model ='gemini-3.5-flash-lite'
-# prompt = 'Say hello'
-# print(client.interact(model,prompt,api_key()))
+
+# print(client.interact(model,prompt))
+
+# Directly using Gemini api key (currently disfunctional)
+def api_key():
+    ''' Function to pull api key '''
+    return os.environ["GEMINI_API_KEY"]
+
+
+availableModels = os.environ.get('GEMINI_availableModels').split(',')
+client = create_client(api_key(), availableModels=availableModels)
+
+model ='gemini-3.5-flash-lite'
+prompt = 'Say hello'
+print(client.interact(model, prompt))

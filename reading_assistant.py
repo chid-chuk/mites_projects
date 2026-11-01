@@ -1,47 +1,29 @@
+import os
 from google import genai
+from google.genai import types, errors
+from dotenv import load_dotenv
+from gemini_client import create_client
 
 # To automatically pick up GEMIN_API_KEY from .env
-from dotenv import load_dotenv
 load_dotenv(override=True)
 
-import os
-from google.genai import types, errors
-import requests
+# For Parley API
+def api_key():
+    ''' Function to pull api key '''
+    return os.environ["PARLEY_API_KEY"]
 
-# need "Authorization: Bearer {api_key}" to query Parley
-api_key = os.environ["GEMINI_API_KEY"]
-client = genai.Client(
-    api_key=api_key,
-    http_options=types.HttpOptions(
-        base_url=os.environ["GOOGLE_GEMINI_BASE_URL"],
-        api_version="v1",
-        headers={"Authorization": f"Bearer {api_key}"},
-    ),
-)
-
-r = requests.get(
-    f"{os.environ['GOOGLE_GEMINI_BASE_URL']}/v1/models",
-    headers={"Authorization": f"Bearer {api_key}"},
-)
-# print([m["id"] for m in r.json()["data"]])
-
-prompt = 'Say hello'
-model ='gemini-3.5-flash'
+base_url = os.environ.get("GOOGLE_GEMINI_BASE_URL")
 availableModels = os.environ.get('availableModels').split(',')
+client = create_client(api_key(), availableModels=availableModels, base_url=base_url)
 
-if model in availableModels:
-    try:
-        resp = requests.post(
-                f"{os.environ['GOOGLE_GEMINI_BASE_URL']}/v1/chat/completions",
-                headers={"Authorization": f"Bearer {api_key}"},
-                json={
-                    "model": model,
-                    "messages": [{"role": "user", "content": prompt}],
-                },
-        )
-        resp.raise_for_status()
-        print(resp.json()["choices"][0]["message"]["content"])
-    except NameError:
-         print(f'Select a model from [{availableModels}]')
-else:
-    print(f'Select a model from [{availableModels}]')
+# Directly using Gemini api key (currently disfunctional)
+# def api_key():
+#     ''' Function to pull api key '''
+#     return os.environ["GEMINI_API_KEY"]
+
+# availableModels = os.environ.get('GEMINI_availableModels').split(',')
+# client = create_client(api_key(), availableModels=availableModels)
+
+# model ='gemini-3.5-flash-lite'
+# prompt = 'Say hello'
+# print(client.interact(model,prompt,api_key()))

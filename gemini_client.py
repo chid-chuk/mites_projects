@@ -5,8 +5,6 @@ from dotenv import load_dotenv
 
 load_dotenv(override=True)
 
-# need "Authorization: Bearer {api_key}" to query Parley
-
 class MyClient(genai.Client):
     def __init__(self, api_key: str = '', availableModels: list = None, *args, **kwargs):
         if kwargs.get('base_url') is not None:
@@ -17,12 +15,13 @@ class MyClient(genai.Client):
                 http_options=types.HttpOptions(
                     base_url = kwargs.get('base_url'),
                     api_version = kwargs.get('api_version', 'v1'),
-                    headers = {"Authorization": f"Bearer {api_key}"} # to avoid storing the api_key
+                    headers = kwargs.get('header', {"Authorization": f"Bearer {api_key}"}), # to avoid storing the api_key
+                    timeout=kwargs.get('timeout_s', 60)
                 ),
             )
 
             self.base_url = kwargs.get('base_url')
-            self.api_version= kwargs.get('api_version', 'v1')
+            self.api_version = kwargs.get('api_version', 'v1')
             self.has_ext_api = True
         else:
             self.has_ext_api = False
@@ -30,18 +29,22 @@ class MyClient(genai.Client):
                 api_key=api_key,
                 http_options=types.HttpOptions(
                     base_url='https://generativelanguage.googleapis.com/',
-                    api_version='v1beta'
+                    api_version=kwargs.get('api_version', 'v1beta'),
+                    timeout=kwargs.get('timeout_s', 60)
                 )
             )
+            self.api_version = kwargs.get('api_version', 'v1beta')
 
         self.availableModels = availableModels
 
-    def parley_api_interaction(self, api_key: str, model: str, prompt='', *args, **kwargs):
+    def ext_api_interaction(self, api_key: str, model: str, prompt='', *args, **kwargs):
         '''
+        Interact with gemini directly routing through an external API
+
         Params:
-        model = Gemini model to query
-        prompt = prompt
-        choice = response type of choice, default is 0 -> text
+            model = Gemini model to query
+            prompt = prompt
+            choice = response type of choice, default is 0 -> text
 
         Returns:
         Response from the Gemini model
@@ -65,11 +68,13 @@ class MyClient(genai.Client):
 
     def gemini_interaction(self, model: str, prompt='', *args, **kwargs):
         '''
+        Interact with gemini directly without and external API
+
         Params:
-        model = Gemini model to query
-        prompt = prompt
-        full_resp = return the full interaction, default False
-        choice = response type of choice (0-3), defaults is 0 -> text
+            model = Gemini model to query
+            prompt = prompt
+            full_resp = return the full interaction, default False
+            choice = response type of choice (0-3), defaults is 0 -> text
 
         Notes:
         - will try out interactions.create() first and then tries models.generate_content()
@@ -86,7 +91,8 @@ class MyClient(genai.Client):
 
             resp = self.interactions.create(
                 model = model,
-                input = prompt
+                input = prompt,
+                automatic_continuation=False
             )
 
             if kwargs.get('full_resp', False):
@@ -102,8 +108,12 @@ class MyClient(genai.Client):
         try:
             resp = self.models.generate_content(
                 model=model,
-                contents=prompt
+                contents=prompt,
+                config=types.GenerateContentConfig(response_modalities=['TEXT', 'IMAGE']),
             )
+            for part in resp.candidates[0].content.parts:
+                if part.inline_data:
+                    return part.inline_data.data   # raw bytes, NOT base64
             return resp.text
         except Exception as e:
             print(f"Error: {e}")
@@ -111,13 +121,13 @@ class MyClient(genai.Client):
 
     def interact(self, model: str, prompt: str, api_key = None, *args, **kwargs):
         '''
-        Params:
-        model = Gemini model to query
-        prompt = prompt
+        Create interactions with a Gemini model
 
-        For a model routed through an external API
-        api_key = api key of prompt
-        choice = response type of choice, defaults to 0
+        Params:
+            model = Gemini model to query
+            prompt = prompt
+            api_key = api key of prompt (if external API), default None
+            choice = response type of choice, defaults to 0
 
         Returns:
         Response from the Gemini model
@@ -128,7 +138,7 @@ class MyClient(genai.Client):
         if model in self.availableModels:
             if self.has_ext_api:
                 if api_key is not None:
-                    return self.parley_api_interaction(api_key, model, prompt, *args, **kwargs)
+                    return self.ext_api_interaction(api_key, model, prompt, *args, **kwargs)
                 else:
                     print('A query routed through an external API needs the api_key argument')
                     return
@@ -161,7 +171,6 @@ class MyClient(genai.Client):
         '''
 
         del self.base_url
-        del self.api_version
 
         if availableModels is not None:
             self.__init__(api_key, availableModels, *args)

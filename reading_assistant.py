@@ -1,6 +1,5 @@
 import os
 from google import genai
-from google.genai import types, errors
 from dotenv import load_dotenv
 from gemini_client import create_client
 
@@ -26,8 +25,25 @@ def api_key():
 
 
 availableModels = os.environ.get('GEMINI_availableModels').split(',')
-client = create_client(api_key(), availableModels=availableModels)
+client = create_client(api_key(), availableModels=availableModels, timeout_s = 10)
 
-model ='gemini-3.5-flash-lite'
-prompt = 'Say hello'
-print(client.interact(model, prompt))
+print('Available models are:', client._availableModels())
+
+model ='gemini-2.5-flash-image'
+prompt = 'Generate a picture of a cat'
+image = client.interact(model, prompt, choice=2)
+
+
+from PIL import Image
+
+# 1. Convert base64 to byte stream
+if type(image) != bytes:
+    image = image.data
+
+# 2. Save and display the image
+with open("generated_image.png", "wb") as f:
+    f.write(image)
+
+# 3. Open and display with your system's default viewer
+img = Image.open(fp="generated_image.png")
+img.show()

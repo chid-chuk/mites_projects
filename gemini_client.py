@@ -1,9 +1,17 @@
 import requests
+import base64
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
 
 load_dotenv(override=True)
+
+# ---------------------------------------------------------------------------
+
+# Claude fix: gemini-2.5-flash-image has 0 free-tier quota. Enable billing on
+# the API-key project (https://ai.dev/rate-limit) or use a model your tier
+# can access. The generate_content() fallback below fails with the same 429
+# quota error, so it can't rescue this either.
 
 class MyClient(genai.Client):
     def __init__(self, api_key: str = '', availableModels: list = None, *args, **kwargs):
@@ -16,7 +24,9 @@ class MyClient(genai.Client):
                     base_url = kwargs.get('base_url'),
                     api_version = kwargs.get('api_version', 'v1'),
                     headers = kwargs.get('header', {"Authorization": f"Bearer {api_key}"}), # to avoid storing the api_key
-                    timeout=kwargs.get('timeout_s', 60)
+                    timeout=kwargs.get('timeout_ms', 60_000),
+                    # Claude bug fix: fails fast in case of hanging due to 429 error
+                    retry_options=types.HttpRetryOptions(attempts=3, http_status_codes=[408, 500, 502, 503, 504])
                 ),
             )
 
@@ -30,7 +40,9 @@ class MyClient(genai.Client):
                 http_options=types.HttpOptions(
                     base_url='https://generativelanguage.googleapis.com/',
                     api_version=kwargs.get('api_version', 'v1beta'),
-                    timeout=kwargs.get('timeout_s', 60)
+                    timeout=kwargs.get('timeout_ms', 60_000),
+                    # Claude bug fix: fails fast in case of hanging due to 429 error
+                    retry_options=types.HttpRetryOptions(attempts=3, http_status_codes=[408, 500, 502, 503, 504])
                 )
             )
             self.api_version = kwargs.get('api_version', 'v1beta')
@@ -46,9 +58,15 @@ class MyClient(genai.Client):
             prompt = prompt
             choice = response type of choice, default is 0 -> text
 
+        Notes:
+        - Only suports and index of 0 because of Parley plan
+
         Returns:
         Response from the Gemini model
         '''
+        assert type(kwargs.get('choice', 0)) == int, f'choice is invalid type {type(kwargs.get('choice'))}, expected int'
+        assert kwargs.get('choice', 0) == 0, f'Index {kwargs.get('choice')} is out of range, only supports index of 0'
+
         try:
             resp = requests.post(
                 f"{self.base_url}/v1/chat/completions",
@@ -63,7 +81,7 @@ class MyClient(genai.Client):
             print(f"Error: {e}")
             return
 
-        # Return the response of the type of choice if specified (else just the first )
+        # Return the response of the type of choice if specified (else just the first)
         return resp.json()["choices"][kwargs.get('choice', 0)]["message"]["content"]
 
     def gemini_interaction(self, model: str, prompt='', *args, **kwargs):
@@ -84,11 +102,11 @@ class MyClient(genai.Client):
         Response from the Gemini model
         '''
 
+        assert type(kwargs.get('choice', 0)) == int, f'choice is invalid type {type(kwargs.get('choice'))}, expected int'
+        assert kwargs.get('choice', 0) < 4, f'Index {kwargs.get('choice')} is out of range, expected 0-3'
+
         # try with interactions
         try:
-            assert type(kwargs.get('choice', 0)) == int, f'choice is invalid type {type(kwargs.get('choice'))}, expected int'
-            assert kwargs.get('choice', 0) < 4, f'Index {kwargs.get('choice')} is out of range, expected 0-3'
-
             resp = self.interactions.create(
                 model = model,
                 input = prompt,
@@ -99,9 +117,14 @@ class MyClient(genai.Client):
                 return resp
 
             # A list containing all the response options
-            response_list = [resp.output_text, resp.output_audio, resp.output_image, resp.output_video]
+            response_list = [resp.output_text,
+                             resp.output_audio,
+                             base64.b64decode(resp.output_image.data) if resp.output_image.data else None,
+                             resp.output_video]
+
             return response_list[kwargs.get('choice', 0)]
         except Exception as e:
+            if getattr(e,'code', None) == 429: raise f'Error code {e.code}: {e}' # Claude suggestion to deal with rate limit error
             print(f"Error: {e}\nTrying generate_content() method...")
 
         # upon failure try with generate_content()
@@ -111,11 +134,15 @@ class MyClient(genai.Client):
                 contents=prompt,
                 config=types.GenerateContentConfig(response_modalities=['TEXT', 'IMAGE']),
             )
-            for part in resp.candidates[0].content.parts:
-                if part.inline_data:
-                    return part.inline_data.data   # raw bytes, NOT base64
-            return resp.text
+
+            if kwargs.get('choice', 0) != 0:
+                for part in resp.candidates[0].content.parts:
+                    if part.inline_data:
+                        return part.inline_data.data   # raw bytes, NOT base64
+
+            return resp.candidates[0].content.parts['text']
         except Exception as e:
+            if getattr(e,'code', None) == 429: raise f'Error code {e.code}: {e}' # Claude suggestion to deal with too rate limit error
             print(f"Error: {e}")
             return
 
